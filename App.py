@@ -72,5 +72,10 @@ if 'hazir_sorular' in st.session_state:
             pdf.cell(0, 10, txt=f"Soru {i+1}: En iyi hamleyi bulunuz.", ln=True)
             pdf.ln(45) # Diyagram için boşluk
             
-        pdf_output = pdf.output(dest='S').encode('latin-1')
+        # Türkçe karakter hatasını önlemek için güvenli çıktı modu
+pdf_output = pdf.output(dest='S')
+if isinstance(pdf_output, str):
+    pdf_output = pdf_output.encode('latin-1', 'replace')
+st.download_button(label="📥 PDF Dosyasını İndir", data=pdf_output, file_name="omer_can_uyduran_test.pdf")
+
         st.download_button(label="📥 PDF Dosyasını İndir", data=pdf_output, file_name="omer_can_uyduran_test.pdf")
