@@ -4,12 +4,14 @@ import chess
 import chess.svg
 import tempfile
 import os
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table
+import time
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table
+from reportlab.platypus import Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import Image as RLImage
 from io import BytesIO
-from PIL import Image as PILImage
+import cairosvg
+
 
 # -------------------------
 # CONFIG
@@ -39,8 +41,9 @@ THEME_MAP = {
     "Karışık": None
 }
 
+
 # -------------------------
-# LICHESS API FETCH
+# LICHESS FETCH
 # -------------------------
 
 def fetch_puzzles(theme, level, limit):
@@ -48,20 +51,25 @@ def fetch_puzzles(theme, level, limit):
     min_rating, max_rating = LEVEL_RANGES[level]
     puzzles = []
     attempts = 0
-    max_attempts = 200  # sonsuz döngüye girmesin
+    max_attempts = 400
 
     while len(puzzles) < limit and attempts < max_attempts:
         attempts += 1
 
-        url = "https://lichess.org/api/puzzle/next"
-
         try:
             response = requests.get(
-                url,
+                "https://lichess.org/api/puzzle/next",
                 headers={"Accept": "application/json"}
             )
 
+            if response.status_code == 429:
+                time.sleep(1)
+                continue
+
             if response.status_code != 200:
+                continue
+
+            if not response.text:
                 continue
 
             data = response.json()
@@ -88,7 +96,6 @@ def fetch_puzzles(theme, level, limit):
     return puzzles
 
 
-
 # -------------------------
 # BOARD IMAGE
 # -------------------------
@@ -102,10 +109,7 @@ def generate_board_image(fen):
     temp_svg.close()
 
     temp_png = temp_svg.name.replace(".svg", ".png")
-
-    # SVG → PNG dönüşüm (Pillow ile)
-    from cairosvg import svg2png
-    svg2png(url=temp_svg.name, write_to=temp_png)
+    cairosvg.svg2png(url=temp_svg.name, write_to=temp_png)
 
     os.remove(temp_svg.name)
 
@@ -113,7 +117,7 @@ def generate_board_image(fen):
 
 
 # -------------------------
-# PDF CREATION
+# PDF
 # -------------------------
 
 def create_pdf(puzzles, theme_label, level):
@@ -124,15 +128,15 @@ def create_pdf(puzzles, theme_label, level):
     styles = getSampleStyleSheet()
 
     # HEADER
-    elements.append(Paragraph("SATRAÇ TESTİ", styles["Heading1"]))
+    elements.append(Paragraph("SATRANC TESTI", styles["Heading1"]))
     elements.append(Spacer(1, 0.2 * inch))
     elements.append(Paragraph(f"Konu: {theme_label}", styles["Normal"]))
     elements.append(Paragraph(f"Seviye: {level}", styles["Normal"]))
-    elements.append(Paragraph("Hazırlayan: Ömer Can Uyduran", styles["Normal"]))
+    elements.append(Paragraph("Hazirlayan: Omer Can Uyduran", styles["Normal"]))
     elements.append(Spacer(1, 0.3 * inch))
 
     student_table = Table([
-        ["Öğrenci Adı:", "__________________________"],
+        ["Ogrenci Adi:", "__________________________"],
         ["Tarih:", "____ / ____ / ______"]
     ], colWidths=[2*inch, 3*inch])
 
@@ -163,26 +167,29 @@ def create_pdf(puzzles, theme_label, level):
 # STREAMLIT UI
 # -------------------------
 
-st.title("♟️ Canlı Lichess Satranç Testi Oluşturucu")
+st.title("♟️ Ogrenciye Ozel Satranc Testi PDF")
 
-theme_label = st.selectbox("Konu Seç", list(THEME_MAP.keys()))
+theme_label = st.selectbox("Konu Sec", list(THEME_MAP.keys()))
 level = st.selectbox("Seviye", list(LEVEL_RANGES.keys()))
-limit = st.selectbox("Soru Sayısı", [5, 10, 15, 20])
+limit = st.selectbox("Soru Sayisi", [5, 10, 15, 20])
 
 if st.button("PDF Olustur"):
+
     theme = THEME_MAP[theme_label]
 
     with st.spinner("Sorular Lichess API'den cekiliyor..."):
         puzzles = fetch_puzzles(theme, level, limit)
 
-    pdf = create_pdf(puzzles, theme_label, level)
+    if len(puzzles) == 0:
+        st.error("Uygun puzzle bulunamadi. Lutfen tekrar deneyin.")
+    else:
+        pdf = create_pdf(puzzles, theme_label, level)
 
-    st.success("PDF hazir!")
+        st.success("PDF hazir!")
 
-    st.download_button(
-        label="PDF Indir",
-        data=pdf,
-        file_name=f"{theme_label}_{level}_test.pdf",
-        mime="application/pdf"
-    )
-
+        st.download_button(
+            label="PDF Indir",
+            data=pdf,
+            file_name=f"{theme_label}_{level}_test.pdf",
+            mime="application/pdf"
+        )
