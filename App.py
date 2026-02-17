@@ -148,7 +148,20 @@ theme_label = st.selectbox("Konu Seç", list(THEME_MAP.keys()))
 level = st.selectbox("Seviye", list(LEVEL_RANGES.keys()))
 limit = st.selectbox("Soru Sayısı", [5, 10, 15, 20])
 
-if st.button("PDF Oluştur"):
+if st.button("PDF Olustur"):
     theme = THEME_MAP[theme_label]
 
-    with st.spinner("So
+    with st.spinner("Sorular Lichess API'den cekiliyor..."):
+        puzzles = fetch_puzzles(theme, level, limit)
+
+    pdf = create_pdf(puzzles, theme_label, level)
+
+    st.success("PDF hazir!")
+
+    st.download_button(
+        label="PDF Indir",
+        data=pdf,
+        file_name=f"{theme_label}_{level}_test.pdf",
+        mime="application/pdf"
+    )
+
