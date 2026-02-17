@@ -44,28 +44,49 @@ THEME_MAP = {
 # -------------------------
 
 def fetch_puzzles(theme, level, limit):
+
     min_rating, max_rating = LEVEL_RANGES[level]
     puzzles = []
+    attempts = 0
+    max_attempts = 200  # sonsuz döngüye girmesin
 
-    while len(puzzles) < limit:
-        url = "https://lichess.org/api/puzzle"
-        params = {}
+    while len(puzzles) < limit and attempts < max_attempts:
+        attempts += 1
 
-        if theme:
-            params["theme"] = theme
+        url = "https://lichess.org/api/puzzle/next"
 
-        response = requests.get(url, params=params, headers={"Accept": "application/json"})
-        data = response.json()
+        try:
+            response = requests.get(
+                url,
+                headers={"Accept": "application/json"}
+            )
 
-        rating = data["puzzle"]["rating"]
+            if response.status_code != 200:
+                continue
 
-        if min_rating <= rating <= max_rating:
+            data = response.json()
+
+            rating = data["puzzle"]["rating"]
+            themes = data["puzzle"]["themes"]
+
+            # Rating filtre
+            if not (min_rating <= rating <= max_rating):
+                continue
+
+            # Tema filtre
+            if theme and theme not in themes:
+                continue
+
             puzzles.append({
                 "fen": data["game"]["fen"],
                 "rating": rating
             })
 
+        except Exception:
+            continue
+
     return puzzles
+
 
 
 # -------------------------
