@@ -1,4 +1,5 @@
 streamlit
-requests
+pandas
+python-chess
 reportlab
-Pillow
+cairosvg
