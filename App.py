@@ -1,21 +1,21 @@
 import streamlit as st
-import requests
+import pandas as pd
 import chess
 import chess.svg
 import tempfile
 import os
-import time
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table
 from reportlab.platypus import Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 from io import BytesIO
-import cairosvg
-
 
 # -------------------------
 # CONFIG
 # -------------------------
+
+CSV_PATH = "lichess_db_puzzle.csv"
 
 LEVEL_RANGES = {
     "Kolay": (0, 1400),
@@ -41,80 +41,53 @@ THEME_MAP = {
     "Karışık": None
 }
 
-
 # -------------------------
-# LICHESS FETCH
+# LOAD DATA
 # -------------------------
 
-def fetch_puzzles(theme, level, limit):
+@st.cache_data
+def load_data():
+    return pd.read_csv(CSV_PATH)
 
+def filter_puzzles(df, theme, level, limit):
     min_rating, max_rating = LEVEL_RANGES[level]
-    puzzles = []
-    attempts = 0
-    max_attempts = 400
 
-    while len(puzzles) < limit and attempts < max_attempts:
-        attempts += 1
+    filtered = df[
+        (df["Rating"] >= min_rating) &
+        (df["Rating"] <= max_rating)
+    ]
 
-        try:
-            response = requests.get(
-                "https://lichess.org/api/puzzle/next",
-                headers={"Accept": "application/json"}
-            )
+    if theme:
+        filtered = filtered[filtered["Themes"].str.contains(theme)]
 
-            if response.status_code == 429:
-                time.sleep(1)
-                continue
-
-            if response.status_code != 200:
-                continue
-
-            if not response.text:
-                continue
-
-            data = response.json()
-
-            rating = data["puzzle"]["rating"]
-            themes = data["puzzle"]["themes"]
-
-            # Rating filtre
-            if not (min_rating <= rating <= max_rating):
-                continue
-
-            # Tema filtre
-            if theme and theme not in themes:
-                continue
-
-            puzzles.append({
-                "fen": data["game"]["fen"],
-                "rating": rating
-            })
-
-        except Exception:
-            continue
-
-    return puzzles
-
+    return filtered.sample(n=min(limit, len(filtered)))
 
 # -------------------------
-# BOARD IMAGE
+# BOARD DRAW (CAIRO YOK)
 # -------------------------
 
 def generate_board_image(fen):
     board = chess.Board(fen)
+
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    file_path = temp_file.name
+    temp_file.close()
+
+    # PNG üretimi (SVG kullanmadan)
+    from reportlab.graphics import renderPM
+    from svglib.svglib import svg2rlg
+
     svg_data = chess.svg.board(board=board)
+    svg_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".svg")
+    svg_temp.write(svg_data.encode())
+    svg_temp.close()
 
-    temp_svg = tempfile.NamedTemporaryFile(delete=False, suffix=".svg")
-    temp_svg.write(svg_data.encode())
-    temp_svg.close()
+    drawing = svg2rlg(svg_temp.name)
+    renderPM.drawToFile(drawing, file_path, fmt="PNG")
 
-    temp_png = temp_svg.name.replace(".svg", ".png")
-    cairosvg.svg2png(url=temp_svg.name, write_to=temp_png)
+    os.remove(svg_temp.name)
 
-    os.remove(temp_svg.name)
-
-    return temp_png
-
+    return file_path
 
 # -------------------------
 # PDF
@@ -127,7 +100,6 @@ def create_pdf(puzzles, theme_label, level):
     elements = []
     styles = getSampleStyleSheet()
 
-    # HEADER
     elements.append(Paragraph("SATRANC TESTI", styles["Heading1"]))
     elements.append(Spacer(1, 0.2 * inch))
     elements.append(Paragraph(f"Konu: {theme_label}", styles["Normal"]))
@@ -143,10 +115,9 @@ def create_pdf(puzzles, theme_label, level):
     elements.append(student_table)
     elements.append(PageBreak())
 
-    # QUESTIONS
-    for i, puzzle in enumerate(puzzles, 1):
+    for i, (_, row) in enumerate(puzzles.iterrows(), 1):
 
-        image_path = generate_board_image(puzzle["fen"])
+        image_path = generate_board_image(row["FEN"])
 
         elements.append(Paragraph(f"Soru {i}", styles["Heading2"]))
         elements.append(Spacer(1, 0.2 * inch))
@@ -162,12 +133,13 @@ def create_pdf(puzzles, theme_label, level):
     buffer.seek(0)
     return buffer
 
-
 # -------------------------
-# STREAMLIT UI
+# UI
 # -------------------------
 
-st.title("♟️ Ogrenciye Ozel Satranc Testi PDF")
+st.title("♟️ Ogrenciye Ozel Satranc Testi")
+
+df = load_data()
 
 theme_label = st.selectbox("Konu Sec", list(THEME_MAP.keys()))
 level = st.selectbox("Seviye", list(LEVEL_RANGES.keys()))
@@ -176,12 +148,10 @@ limit = st.selectbox("Soru Sayisi", [5, 10, 15, 20])
 if st.button("PDF Olustur"):
 
     theme = THEME_MAP[theme_label]
-
-    with st.spinner("Sorular Lichess API'den cekiliyor..."):
-        puzzles = fetch_puzzles(theme, level, limit)
+    puzzles = filter_puzzles(df, theme, level, limit)
 
     if len(puzzles) == 0:
-        st.error("Uygun puzzle bulunamadi. Lutfen tekrar deneyin.")
+        st.error("Uygun puzzle bulunamadi.")
     else:
         pdf = create_pdf(puzzles, theme_label, level)
 
